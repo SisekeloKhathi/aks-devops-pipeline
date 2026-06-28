@@ -1,0 +1,22 @@
+﻿replicaCount: 1
+
+image:
+  repository: acr4eue2b.azurecr.io/myapp
+  tag: latest
+  pullPolicy: Always
+
+service:
+  type: LoadBalancer
+  port: 80
+  targetPort: 8080
+
+resources:
+  limits:
+    cpu: 200m
+    memory: 256Mi
+  requests:
+    cpu: 100m
+    memory: 128Mi
+
+env:
+  ENVIRONMENT: "production"
