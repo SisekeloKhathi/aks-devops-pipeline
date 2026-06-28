@@ -1,0 +1,52 @@
+name: Deploy to AKS
+
+on:
+  push:
+    branches:
+      - master
+  workflow_dispatch:
+
+env:
+  ACR_NAME: acr4eue2b
+  ACR_LOGIN_SERVER: acr4eue2b.azurecr.io
+  IMAGE_REPOSITORY: myapp
+  AKS_CLUSTER: aks-cluster
+  AKS_RESOURCE_GROUP: devops-rg
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+    
+    - name: Azure Login
+      uses: azure/login@v1
+      with:
+        creds: ${{ secrets.AZURE_CREDENTIALS }}
+    
+    - name: Login to ACR
+      uses: azure/docker-login@v1
+      with:
+        login-server: ${{ env.ACR_LOGIN_SERVER }}
+        username: ${{ secrets.ACR_USERNAME }}
+        password: ${{ secrets.ACR_PASSWORD }}
+    
+    - name: Build and Push Docker image
+      run: |
+        docker build -t ${{ env.ACR_LOGIN_SERVER }}/${{ env.IMAGE_REPOSITORY }}:${{ github.sha }} ./app
+        docker push ${{ env.ACR_LOGIN_SERVER }}/${{ env.IMAGE_REPOSITORY }}:${{ github.sha }}
+    
+    - name: Set AKS context
+      uses: azure/aks-set-context@v3
+      with:
+        resource-group: ${{ env.AKS_RESOURCE_GROUP }}
+        cluster-name: ${{ env.AKS_CLUSTER }}
+        admin: true
+    
+    - name: Deploy with Helm
+      run: |
+        helm upgrade --install myapp ./helm \
+          --set image.repository=${{ env.ACR_LOGIN_SERVER }}/${{ env.IMAGE_REPOSITORY }} \
+          --set image.tag=${{ github.sha }}
