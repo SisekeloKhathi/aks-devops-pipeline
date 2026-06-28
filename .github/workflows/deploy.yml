@@ -18,14 +18,17 @@ jobs:
     runs-on: ubuntu-latest
     
     steps:
+    # Step 1: Checkout code from GitHub
     - name: Checkout code
       uses: actions/checkout@v3
     
+    # Step 2: Login to Azure
     - name: Azure Login
       uses: azure/login@v1
       with:
         creds: ${{ secrets.AZURE_CREDENTIALS }}
     
+    # Step 3: Login to Azure Container Registry
     - name: Login to ACR
       uses: azure/docker-login@v1
       with:
@@ -33,11 +36,31 @@ jobs:
         username: ${{ secrets.ACR_USERNAME }}
         password: ${{ secrets.ACR_PASSWORD }}
     
-    - name: Build and Push Docker image
+    # Step 4: Build Docker image
+    - name: Build Docker image
       run: |
         docker build -t ${{ env.ACR_LOGIN_SERVER }}/${{ env.IMAGE_REPOSITORY }}:${{ github.sha }} ./app
-        docker push ${{ env.ACR_LOGIN_SERVER }}/${{ env.IMAGE_REPOSITORY }}:${{ github.sha }}
+        docker tag ${{ env.ACR_LOGIN_SERVER }}/${{ env.IMAGE_REPOSITORY }}:${{ github.sha }} ${{ env.ACR_LOGIN_SERVER }}/${{ env.IMAGE_REPOSITORY }}:latest
     
+    # Step 5: Security Scan with Trivy (NEW!)
+    - name: Security Scan with Trivy
+      run: |
+        echo "🔍 Scanning for HIGH and CRITICAL vulnerabilities..."
+        docker run --rm \
+          -v /var/run/docker.sock:/var/run/docker.sock \
+          aquasec/trivy image \
+          --severity HIGH,CRITICAL \
+          --exit-code 0 \
+          ${{ env.ACR_LOGIN_SERVER }}/${{ env.IMAGE_REPOSITORY }}:${{ github.sha }}
+        echo "✅ Security scan completed!"
+    
+    # Step 6: Push Docker image to ACR
+    - name: Push Docker image to ACR
+      run: |
+        docker push ${{ env.ACR_LOGIN_SERVER }}/${{ env.IMAGE_REPOSITORY }}:${{ github.sha }}
+        docker push ${{ env.ACR_LOGIN_SERVER }}/${{ env.IMAGE_REPOSITORY }}:latest
+    
+    # Step 7: Set AKS context
     - name: Set AKS context
       uses: azure/aks-set-context@v3
       with:
@@ -45,8 +68,21 @@ jobs:
         cluster-name: ${{ env.AKS_CLUSTER }}
         admin: true
     
+    # Step 8: Deploy with Helm
     - name: Deploy with Helm
       run: |
         helm upgrade --install myapp ./helm \
           --set image.repository=${{ env.ACR_LOGIN_SERVER }}/${{ env.IMAGE_REPOSITORY }} \
-          --set image.tag=${{ github.sha }}
+          --set image.tag=${{ github.sha }} \
+          --set image.pullPolicy=Always \
+          --wait \
+          --timeout 5m
+    
+    # Step 9: Verify deployment
+    - name: Verify deployment
+      run: |
+        echo "✅ Deployment completed!"
+        echo "📊 Checking pod status..."
+        kubectl get pods
+        echo "🌐 Getting service IP..."
+        kubectl get services
